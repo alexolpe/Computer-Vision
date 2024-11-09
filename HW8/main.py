@@ -240,33 +240,12 @@ def estimate_k(w):
     s = -(w12 * alphax ** 2 * alphay) / lam
     x0 = s * y0 / alphay - (w13 * alphax ** 2) / lam
 
-    # Build the intrinsic matrix K using the calculated parameters
-    K = np.zeros((3, 3), dtype=np.float64)
-    K[0, 0] = alphax
-    K[0, 1] = s
-    K[0, 2] = x0
-    K[1, 1] = alphay
-    K[1, 2] = y0
-    K[2, 2] = 1.0
+    # Build the intrinsic matrix K using the calculated parameters   
+    K = np.array([[alphax, s, x0],
+                  [0, alphay, y0],
+                  [0, 0, 1]])
 
     return K
-
-def find_extrinsic_parameter(Hs, K):
-    Rs = []
-    ts = []
-    for H in Hs:
-        r1 = np.dot(np.linalg.inv(K), H[:, 0])
-        scaling = 1 / np.linalg.norm(r1)
-        r1 = scaling * r1
-        r2 = scaling * np.dot(np.linalg.inv(K), H[:, 1])
-        t = scaling * np.dot(np.linalg.inv(K), H[:, 2])
-        r3 = np.cross(r1, r2)
-        R = np.column_stack((r1, r2, r3))
-        u, s, vh = np.linalg.svd(R)
-        conditioned_R = np.matmul(u, vh)
-        Rs.append(conditioned_R)
-        ts.append(t)
-    return Rs, ts
 
 def get_extrinsic_param(homographies, intrinsic_matrix):
     rot = []
