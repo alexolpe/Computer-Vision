@@ -82,7 +82,7 @@ def get_line(line_form, img, tipo):
         pt1 = (int(math.cos(new_theta) * new_rho + 5000 * (-math.sin(new_theta))), int(math.sin(new_theta) * new_rho + 5000 * (math.cos(new_theta))))
         pt2 = (int(math.cos(new_theta) * new_rho - 5000 * (-math.sin(new_theta))), int(math.sin(new_theta) * new_rho - 5000 * (math.cos(new_theta))))
         final_lines.append([pt1, pt2])
-        cv2.line(img, pt1, pt2, (255 * i, 0, 255 * (1 - i)), 3, cv2.LINE_AA)
+        cv2.line(img, pt1, pt2, (255, 0, 0), 3, cv2.LINE_AA)
         
     return final_lines
 
@@ -135,8 +135,8 @@ def get_intersections(path, name):
             intersect.append(pt)
             x, y = pt  # Change these values to the pixel location you want
             # Draw the "X" by drawing two diagonal lines that cross at (x, y)
-            color = (0, 255, 0)  # Green color in BGR
-            thickness = 2  # Thickness of the line
+            color = (0, 0, 255)  # Green color in BGR
+            thickness = 1  # Thickness of the line
             cv2.line(img_intersec, (x - 5, y - 5), (x + 5, y + 5), color, thickness)
             cv2.line(img_intersec, (x - 5, y + 5), (x + 5, y - 5), color, thickness)
             number = str(len(intersect))  # Change this to the number you want
@@ -151,17 +151,13 @@ def get_intersections(path, name):
 
 # Function to find homography matrix between domain points and range points
 def get_homography(d_pts, r_pts):
-    A = []
+    mat_A = []
     for i in range(len(r_pts)):
-        x = d_pts[i][0] 
-        y = d_pts[i][1]
-        x_tilde = r_pts[i][0]
-        y_tilde = r_pts[i][1]
-        A.append([0, 0, 0, -x, -y, -1, y_tilde * x, y_tilde * y, y_tilde])
-        A.append([x, y, 1, 0, 0, 0, -x_tilde * x, -x_tilde * y, -x_tilde])
-    A = np.array(A)
-    _, _, vh = np.linalg.svd(np.matmul(A.T, A))
-    return np.reshape(vh[-1], (3, 3))
+        mat_A.append([0, 0, 0, -d_pts[i][0], -d_pts[i][1], -1, r_pts[i][1] * d_pts[i][0], r_pts[i][1] * d_pts[i][1], r_pts[i][1]])
+        mat_A.append([d_pts[i][0], d_pts[i][1], 1, 0, 0, 0, -r_pts[i][0] * d_pts[i][0], -r_pts[i][0] * d_pts[i][1], -r_pts[i][0]])
+    mat_A = np.array(mat_A)
+    _, _, v = np.linalg.svd(mat_A.T @ mat_A)
+    return np.reshape(v[-1], (3, 3))
 
 def get_homographies(data_path, world_coord):
     jpg_files = [f for f in os.listdir(data_path) if f.lower().endswith('.jpg')]
@@ -220,8 +216,8 @@ def estimate_w(homographies):
     lhs = np.asarray(lhs, dtype=np.float64)
     
     # Use SVD to find the solution
-    _, _, vh = np.linalg.svd(lhs)
-    w_solution = vh[-1, :]  # Last row of V matrix provides the solution
+    _, _, v = np.linalg.svd(lhs)
+    w_solution = v[-1, :]  # Last row of V matrix provides the solution
     return w_solution
 
 def estimate_k(w):
@@ -244,21 +240,20 @@ def estimate_k(w):
     K = np.array([[alphax, s, x0],
                   [0, alphay, y0],
                   [0, 0, 1]])
-
     return K
 
-def get_extrinsic_param(homographies, intrinsic_matrix):
+def get_extrinsic_param(homographies, K):
     rot = []
     trans = []
-    K_inv = np.linalg.inv(intrinsic_matrix)
+    K_inv = np.linalg.inv(K)
 
     for H in homographies:
         # Extract columns from the homography and scale
-        r1_prime = K_inv @ H[:, 0]
-        r1 = r1_prime / np.linalg.norm(r1_prime)
-        r2 = K_inv @ H[:, 1] / np.linalg.norm(r1_prime)
+        h1, h2, h3 = H[:, 0], H[:, 1], H[:, 2]
+        r1 = K_inv @ h1 / np.linalg.norm(K_inv @ h1)
+        r2 = K_inv @ h2 / np.linalg.norm(K_inv @ h1)
         r3 = np.cross(r1, r2)
-        t = K_inv @ H[:, 2] / np.linalg.norm(r1_prime)
+        t = K_inv @ h3 / np.linalg.norm(K_inv @ h1)
         R = np.stack([r1,r2,r3], axis=1)
 
         # Enforce orthogonality constraint on R using SVD
@@ -270,96 +265,89 @@ def get_extrinsic_param(homographies, intrinsic_matrix):
 
     return rot, trans
 
-def apply_homography(H, points):
-    num_points = len(points)
-    points_homo = np.hstack([points, np.ones((num_points, 1))])  # Convert to homogeneous coordinates
-    transformed_points = H @ points_homo.T  # Apply homography
-    transformed_points = transformed_points.T  # Transpose back to Nx3
-    return transformed_points[:, :2] / transformed_points[:, 2, np.newaxis]  # Normalize by the last row
-
-def camera_parameters(K, rotations, translations, radio_distortion=False):
+def param_cam(K, rots, trans):
     # Camera intrinsics
-    params = [K[0, 0], K[0, 1], K[0, 2], K[1, 1], K[1, 2]]
-    
+    p = [K[0, 0], K[0, 1], K[0, 2], K[1, 1], K[1, 2]]
     # Append extrinsics for each rotation and translation pair
-    for R, t in zip(rotations, translations):
-        angle = np.arccos((np.trace(R) - 1) / 2)
-        rotation_vector = (angle / (2 * np.sin(angle))) * np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
-        params.extend(np.hstack((rotation_vector, t)))
-    
-    # Optionally add radial distortion parameters
-    if radio_distortion:
-        params.extend([0, 0])
-    
-    return np.array(params)
+    for R, t in zip(rots, trans):
+        p.extend(np.hstack(((np.arccos((np.trace(R) - 1) / 2) / (2 * np.sin(np.arccos((np.trace(R) - 1) / 2)))) * np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]), t)))
+    return p
 
-def reconstruct_R(params):
-    # Intrinsics
-    K = np.array([[params[0], params[1], params[2]],
-                  [0, params[3], params[4]],
+def reconstruct_params(p):
+    K = np.array([[p[0], p[1], p[2]],
+                  [0, p[3], p[4]],
                   [0, 0, 1]])
-    
     # Extrinsics
-    rotations, translations = [], []
-    for i in range(5, len(params), 6):
-        rotation_vector = params[i:i+3]
-        translation_vector = params[i+3:i+6]
+    rotation_matrices, translation_vectors = [], []
+    step_size = 6
+
+    for idx in range(5, len(p), step_size):
+        # Extract rotation and translation components
+        rot_vec = p[idx:idx+3]
+        trans_vec = p[idx+3:idx+6]
         
-        # Convert rotation vector to rotation matrix
-        angle = np.linalg.norm(rotation_vector)
-        skew_sym_matrix = np.array([
-            [0, -rotation_vector[2], rotation_vector[1]],
-            [rotation_vector[2], 0, -rotation_vector[0]],
-            [-rotation_vector[1], rotation_vector[0], 0]
+        # Calculate rotation angle from rotation vector
+        rot_angle = np.linalg.norm(rot_vec)
+        skew_matrix = np.array([
+            [0, -rot_vec[2], rot_vec[1]],
+            [rot_vec[2], 0, -rot_vec[0]],
+            [-rot_vec[1], rot_vec[0], 0]
         ])
-        R = np.eye(3) + (np.sin(angle) / angle) * skew_sym_matrix + \
-            ((1 - np.cos(angle)) / (angle**2)) * skew_sym_matrix @ skew_sym_matrix
         
-        rotations.append(R)
-        translations.append(translation_vector)
+        # Construct rotation matrix using Rodrigues' formula
+        identity_matrix = np.identity(3)
+        R_matrix = identity_matrix + (np.sin(rot_angle) / rot_angle) * skew_matrix + ((1 - np.cos(rot_angle)) / (rot_angle ** 2)) * (skew_matrix @ skew_matrix)
+        
+        rotation_matrices.append(R_matrix)
+        translation_vectors.append(trans_vec)
     
-    return K, rotations, translations
+    return K, rotation_matrices, translation_vectors
 
-def remove_radio_distortion(points, k1, k2, x0, y0):
-    x, y = points[:, 0], points[:, 1]
-    r_squared = (x - x0)**2 + (y - y0)**2
-    x_corrected = x + (x - x0) * (k1 * r_squared + k2 * r_squared**2)
-    y_corrected = y + (y - y0) * (k1 * r_squared + k2 * r_squared**2)
-    return np.column_stack((x_corrected, y_corrected))
+def error(diff, idx):
+    diff = diff.reshape((-1 , 2))
+    start = idx * 80
+    end = start + 80
+    diff_norm = np.linalg.norm(diff[start:end], axis =1)
+    return np.average(diff_norm), np.var(diff_norm)
 
-def cost_function(params, all_intersec_points, world_coord, radio_distortion=False, lm = True, img_idx = -1, name = None):
-    if radio_distortion:
-        K, Rs, ts = reconstruct_R(params[:-2])
-        k1 = params[-2]
-        k2 = params[-1]
-        x0 = params[2]
-        y0 = params[4]
-    else:
-        K, Rs, ts = reconstruct_R(params)
+def cost_function(params, all_intersec_points, world_coord, radio_distortion=False, img_idx=-1, name=None):
+    K, Rs, ts = reconstruct_params(params[:-2] if radio_distortion else params)
 
     all_projected_points = []
-    for R, t in zip(Rs, ts):
+    for k, (R, t) in enumerate(zip(Rs, ts)):
         H = np.matmul(K, np.column_stack((R[:, 0], R[:, 1], t)))
-        projected_points = apply_homography(H, world_coord)
+        
+        # Apply homography
+        pts_h = np.hstack([world_coord, np.ones((len(world_coord), 1))])  # Convert to homogeneous coordinates
+        transf_pts = H @ pts_h.T  # Apply homography
+        transf_pts = transf_pts.T  # Transpose back to Nx3
+        projected_points = transf_pts[:, :2] / transf_pts[:, 2, np.newaxis]  # Normalize by the last row
+        
         if radio_distortion:
-            projected_points = remove_radio_distortion(projected_points, k1, k2, x0, y0)
+            x, y = projected_points[:, 0], projected_points[:, 1]
+            k1, k2, x0, y0 = params[-2], params[-1], params[2], params[4]
+            r_squared = (x - x0)**2 + (y - y0)**2
+            x_corrected = x + (x - x0) * (k1 * r_squared + k2 * r_squared**2)
+            y_corrected = y + (y - y0) * (k1 * r_squared + k2 * r_squared**2)
+            projected_points = np.vstack((x_corrected, y_corrected)).T
         all_projected_points.append(projected_points)
+        if k == img_idx:
+            reproject(all_projected_points, img_idx, name)
 
-    if lm:
-        all_projected_points = np.concatenate(all_projected_points, axis=0)
-        all_intersec_points = np.concatenate(all_intersec_points, axis=0)
-        diff = all_intersec_points - all_projected_points
-        return diff.flatten()
+    all_projected_points = np.concatenate(all_projected_points, axis=0)
+    all_intersec_points = np.concatenate(all_intersec_points, axis=0)
+    diff = all_intersec_points - all_projected_points
+    return diff.flatten()
     
-    else:
-        diff = all_intersec_points[img_idx] - all_projected_points[img_idx]
-        dx = diff[:, 0]
-        dy = diff[:, 1]
-        distance = np.sqrt(dx**2 + dy**2)
-        mean = np.mean(distance)
-        var = np.var(distance)
-        reproject(all_projected_points, img_idx, name)
-        return mean, var
+    # else:
+    #     diff = all_intersec_points[img_idx] - all_projected_points[img_idx]
+    #     dx = diff[:, 0]
+    #     dy = diff[:, 1]
+    #     distance = np.sqrt(dx**2 + dy**2)
+    #     mean = np.mean(distance)
+    #     var = np.var(distance)
+    #     reproject(all_projected_points, img_idx, name)
+    #     return mean, var
     
 def reproject(all_projected_points, img_idx, name):
     path = f"/home/aolivepe/Computer-Vision/HW8/output/Pic_{img_idx + 1}_final_intersec.jpg"
@@ -367,16 +355,22 @@ def reproject(all_projected_points, img_idx, name):
     for point in all_projected_points[img_idx]:
         x, y = int(point[0]), int(point[1])  # Change these values to the pixel location you want
         # Draw the "X" by drawing two diagonal lines that cross at (x, y)
-        color = (0, 0, 255)  # Green color in BGR
-        thickness = 2  # Thickness of the line
+        color = (0, 255, 0)  # Green color in BGR
+        thickness = 1  # Thickness of the line
         cv2.line(img, (x - 5, y - 5), (x + 5, y + 5), color, thickness)
         cv2.line(img, (x - 5, y + 5), (x + 5, y - 5), color, thickness)
         # cv2.circle(img, (int(point[0]), int(point[1])), radius=4, color=(0, 0, 255), thickness=-1)
     cv2.imwrite(f'/home/aolivepe/Computer-Vision/HW8/output/Pic_{img_idx + 1}{name}reproject.jpg', img)
 
-# Example usage:
-# dataset_path = "/home/aolivepe/Computer-Vision/HW8/Dataset2"
-dataset_path = "/home/aolivepe/Computer-Vision/HW8/HW8-Files/Dataset1"
+##############################################
+#                  MAIN                      #
+##############################################
+
+index_img_1 = 4
+index_img_2 = 10
+
+dataset_path = "/home/aolivepe/Computer-Vision/HW8/Dataset2"
+# dataset_path = "/home/aolivepe/Computer-Vision/HW8/HW8-Files/Dataset1"
 
 # Get world coordinates
 x_coords = 10 * np.arange(8)
@@ -389,112 +383,117 @@ w = estimate_w(Hs)
 K = estimate_k(w)
 print("K: ", K)
 Rs, ts = get_extrinsic_param(Hs, K)
-print("Rs[0]: ", Rs[0])
-print("ts[0]: ", ts[0])
+print("Rs[index_img_1]: ", Rs[index_img_1])
+print("ts[index_img_1]: ", ts[index_img_1])
+print("Rs[index_img_2]: ", Rs[index_img_2])
+print("ts[index_img_2]: ", ts[index_img_2])
 
 # Define camera parameters
-params = camera_parameters(K, Rs, ts)
+params = param_cam(K, Rs, ts)
+mean_init_0, var_init_0 = error(cost_function(np.array(params), all_intersec_points, world_coord, img_idx=index_img_1, name='init'), idx=index_img_1)
+mean_init_7, var_init_7 = error(cost_function(np.array(params), all_intersec_points, world_coord, img_idx=index_img_2, name='init'), idx=index_img_2)
 
 # Perform least squares optimization
-res_ls = least_squares(cost_function, params, method='lm', args=[all_intersec_points, world_coord])
 
 # Refine parameters
-K_refined, Rs_refined, ts_refined = reconstruct_R(res_ls.x)
-
-print(K_refined)
-print(Rs_refined[0], ts_refined[0])
-
-print(Rs_refined[7], ts_refined[7])
+# K_refined, Rs_refined, ts_refined = reconstruct_params(res_ls.x)
+# print(K_refined)
+# print(Rs_refined[index_img_1], ts_refined[index_img_1])
+# print(Rs_refined[index_img_2], ts_refined[index_img_2])
 
 # Project and print mean and variance
-mean, var = cost_function(params, all_intersec_points, world_coord, lm = False, img_idx=0, name='init')
-print(mean, var)
+res_ls = least_squares(cost_function, np.array(params), method='lm', args=[all_intersec_points, world_coord])
+mean_refined_0, var_refined_0 = error(cost_function(res_ls.x, all_intersec_points, world_coord, img_idx=index_img_1, name='refined'), idx=index_img_1)
+mean_refined_7, var_refined_7 = error(cost_function(res_ls.x, all_intersec_points, world_coord, img_idx=index_img_2, name='refined'), idx=index_img_2)
 
-mean, var = cost_function(res_ls.x, all_intersec_points, world_coord, lm = False, img_idx=0, name='refined')
-print(mean, var)
-
-mean, var = cost_function(params, all_intersec_points, world_coord, lm = False, img_idx=7, name='init')
-print(mean, var)
-
-mean, var = cost_function(res_ls.x, all_intersec_points, world_coord, lm = False, img_idx=7, name='refined')
-print(mean, var)
-
+K_refined, Rs_refined, ts_refined = reconstruct_params(res_ls.x)
+print("K_refined: ", K_refined)
+print("Rs_refined[index_img_1]: ", Rs_refined[index_img_1])
+print("ts_refined[index_img_1]: ", ts_refined[index_img_1])
+print("Rs_refined[index_img_2]: ", Rs_refined[index_img_2])
+print("ts_refined[index_img_2]: ", ts_refined[index_img_2])
 
 # Define camera parameters with radial distortion
-params_rd = camera_parameters(K, Rs, ts, radio_distortion=True)
-
+params_rd = param_cam(K, Rs, ts)
+params_rd.extend([0, 0])
 # Perform least squares optimization with radial distortion
-res_ls_rd = least_squares(cost_function, params_rd, method='lm', args=[all_intersec_points, world_coord, True])
+res_ls_rd = least_squares(cost_function, np.array(params_rd), method='lm', args=[all_intersec_points, world_coord, True])
+mean_radial_0, var_radial_0 = error(cost_function(res_ls_rd.x, all_intersec_points, world_coord, radio_distortion=True, img_idx=index_img_1, name='radio_dis'), idx=index_img_1)
+mean_radial_7, var_radial_7 = error(cost_function(res_ls_rd.x, all_intersec_points, world_coord, radio_distortion=True, img_idx=index_img_2, name='radio_dis'), idx=index_img_2)
 
-print(res_ls_rd.x[-2:])
+K_refined_rad, Rs_refined_rad, ts_refined_rad = reconstruct_params(res_ls_rd.x[:-2])
+print("K_refined_rad: ", K_refined_rad)
+print("Rs_refined_rad[index_img_1]: ", Rs_refined_rad[index_img_1])
+print("ts_refined_rad[index_img_1]: ", ts_refined_rad[index_img_1])
+print("Rs_refined_rad[index_img_2]: ", Rs_refined_rad[index_img_2])
+print("ts_refined_rad[index_img_2]: ", ts_refined_rad[index_img_2])
 
-# Project and print mean and variance with radial distortion
-mean, var = cost_function(res_ls_rd.x, all_intersec_points, world_coord, lm = False, radio_distortion=True, img_idx=0, name='radio_dis')
-print(mean, var)
+print(f"--------------Image {index_img_1}----------------")
+print(f"|Init mean: {mean_init_0} Init var: {var_init_0}")
+print(f"|Refined mean: {mean_refined_0} Refined var: {var_refined_0}")
+print(f"|Radial mean: {mean_radial_0} Radial var: {var_radial_0}")
+print("[k1 k2] ", res_ls_rd.x[-2:])
+print("-------------------------------------")
 
-mean, var = cost_function(res_ls_rd.x, all_intersec_points, world_coord, lm = False, radio_distortion=True, img_idx=7, name='radio_dis')
-print(mean, var)
+print(f"--------------Image {index_img_2}----------------")
+print(f"|Init mean: {mean_init_7} Init var: {var_init_7}")
+print(f"|Refined mean: {mean_refined_7} Refined var: {var_refined_7}")
+print(f"|Radial mean: {mean_radial_7} Radial var: {var_radial_7}")
+print("[k1 k2] ", res_ls_rd.x[-2:])
+print("-------------------------------------")
 
 def camera_poses(Rs, ts):
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection='3d')
-       
-    # # for i in range(len(R)):
-    # for i in range(1):
-    #     C = -R[i].T @ t[i]
-    #     X_x = R[i].T @ np.array([1, 0, 0]).T + C
-    #     X_y = R[i].T @ np.array([0, 1, 0]).T + C
-    #     X_z = R[i].T @ np.array([0, 0, 1]).T + C
-        
-    #     ax.quiver(C[0], C[1], C[2], X_x[0], X_x[1], X_x[2], color="r", length=1.0)
-    #     ax.quiver(C[0], C[1], C[2], X_y[0], X_y[1], X_y[2], color="g", length=1.0)
-    #     ax.quiver(C[0], C[1], C[2], X_z[0], X_z[1], X_z[2], color="b", length=1.0)
-    
+    Cs=[-np.matmul(np.transpose(Rs[i]),ts[i]) for i in range(len(Rs))]
+    Xx=[np.matmul(np.transpose(Rs[i]),[Cs[i][0] + 1,0,0])+Cs[i] for i in range(len(Rs))]
+    Xy=[np.matmul(np.transpose(Rs[i]),[0,Cs[i][1] + 1,0])+Cs[i] for i in range(len(Rs))]
+    Xz=[np.matmul(np.transpose(Rs[i]),[0,0,Cs[i][2] + 1])+Cs[i] for i in range(len(Rs))]
+    ### length of vectors
+    length=35
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
+    for i in range(len(Cs)):
+        ax.quiver(Cs[i][0],Cs[i][1],Cs[i][2],
+                  Xx[i][0],Xx[i][1],Xx[i][2],
+                  color="r",length=length,normalize=True)
+        if i==0:
+            print(Xx[i])
+    for i in range(len(Cs)):
+        ax.quiver(Cs[i][0],Cs[i][1],Cs[i][2],
+                  Xy[i][0],Xy[i][1],Xy[i][2],
+                  color="g",length=length,normalize=True)
+        if i==0:
+            print(Xy[i])
+    for i in range(len(Cs)):
+        ax.quiver(Cs[i][0],Cs[i][1],Cs[i][2],
+                  Xz[i][0],Xz[i][1],Xz[i][2],
+                  color="b",length=length,normalize=True)
+        if i==0:
+            print(Xz[i])
+    for i in range(len(Cs)):
+        xx, yy = np.meshgrid(range(int(Cs[i][0]-length),int(Cs[i][0]+length)),
+                             range(int(Cs[i][1]-length),int(Cs[i][1]+length)))
+        z = -((xx-Cs[i][0])*Xz[i][0]+(yy-Cs[i][1])*Xz[i][1])/Xz[i][2]+Cs[i][2]
+        ax.plot_surface(xx, yy, z, alpha=0.3)
+        
+    # Create calibration pattern on the Z=0 plane
+    grid_size = 10  # Size of each square in the grid
+    num_squares_h = 5  # Number of squares along each axis
+    num_squares_v = 4
+    gap = 5  # Space between squares
 
-    # Scale and rectangle size
-    scale = 5
-    rectangle_size = 2
-
-    # Loop through each R and t pair
-    for i, (R, t) in enumerate(zip(Rs, ts)):
-        # Compute camera center in world coordinates
-        C = -R.T @ t
-
-        # Define camera principal axes
-        X_cam = R[:, 0]  # X-axis
-        Y_cam = R[:, 1]  # Y-axis
-        Z_cam = R[:, 2]  # Z-axis
-
-        # Plot camera center
-        # ax.scatter(*C, color='k', marker='o', s=100, label=f"Camera Center {i+1}")
-
-        # Plot camera axes
-        ax.quiver(*C, *X_cam, color='r', length=scale, normalize=True, label=f"X_cam {i+1}")
-        ax.quiver(*C, *Y_cam, color='g', length=scale, normalize=True, label=f"Y_cam {i+1}")
-        ax.quiver(*C, *Z_cam, color='b', length=scale, normalize=True, label=f"Z_cam {i+1}")
-
-        # Plot the camera principal plane (rectangle)
-        rect_corners = np.array([
-            [1, 1, 0],
-            [1, -1, 0],
-            [-1, -1, 0],
-            [-1, 1, 0]
-        ]) * rectangle_size
-
-        # Transform rectangle points from camera frame to world frame
-        rect_world = C + (R @ rect_corners.T).T
-        ax.plot_trisurf(rect_world[:, 0], rect_world[:, 1], rect_world[:, 2], color=np.random.rand(3), alpha=0.3)
-
-    # Plot settings
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_box_aspect([1, 1, 1])  # Equal aspect ratio
-    plt.title("3D Plot of Multiple Camera Poses")
+    for i in range(-num_squares_v // 2, num_squares_v // 2):
+        for j in range(-num_squares_h // 2, num_squares_h // 2):
+            x = [i * (grid_size + gap), (i + 1) * (grid_size + gap) - gap, (i + 1) * (grid_size + gap) - gap, i * (grid_size + gap)]
+            y = [j * (grid_size + gap), j * (grid_size + gap), (j + 1) * (grid_size + gap) - gap, (j + 1) * (grid_size + gap) - gap]
+            z = [0, 0, 0, 0]
+            ax.plot_trisurf(x, y, z, color='black', shade=False)
+    
+    ## show origin with limit setting
+    ax.set_ylim([-1, 200])
+    ax.set_zlim([-300, 1])
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
     plt.savefig("3d_vectors_plot.jpg", format="jpg", dpi=300)
     
 camera_poses(Rs, ts)
-    
-    
