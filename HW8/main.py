@@ -443,57 +443,55 @@ print("[k1 k2] ", res_ls_rd.x[-2:])
 print("-------------------------------------")
 
 def camera_poses(Rs, ts):
-    Cs=[-np.matmul(np.transpose(Rs[i]),ts[i]) for i in range(len(Rs))]
-    Xx=[np.matmul(np.transpose(Rs[i]),[Cs[i][0] + 1,0,0])+Cs[i] for i in range(len(Rs))]
-    Xy=[np.matmul(np.transpose(Rs[i]),[0,Cs[i][1] + 1,0])+Cs[i] for i in range(len(Rs))]
-    Xz=[np.matmul(np.transpose(Rs[i]),[0,0,Cs[i][2] + 1])+Cs[i] for i in range(len(Rs))]
+    Cs=[-Rs[i].T @ ts[i] for i in range(len(Rs))]
+    Xx=[Rs[i].T @ [1,0,0]+Cs[i] for i in range(len(Rs))]
+    Xy=[Rs[i].T @ [0,1,0]+Cs[i] for i in range(len(Rs))]
+    Xz=[Rs[i].T @ [0,0,1]+Cs[i] for i in range(len(Rs))]
     ### length of vectors
     length=35
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     for i in range(len(Cs)):
         ax.quiver(Cs[i][0],Cs[i][1],Cs[i][2],
-                  Xx[i][0],Xx[i][1],Xx[i][2],
-                  color="r",length=length,normalize=True)
-        if i==0:
-            print(Xx[i])
+                Xx[i][0]-Cs[i][0],Xx[i][1]-Cs[i][1],Xx[i][2]-Cs[i][2],
+                color="r",length=length,normalize=True)
     for i in range(len(Cs)):
         ax.quiver(Cs[i][0],Cs[i][1],Cs[i][2],
-                  Xy[i][0],Xy[i][1],Xy[i][2],
-                  color="g",length=length,normalize=True)
-        if i==0:
-            print(Xy[i])
+                Xy[i][0]-Cs[i][0],Xy[i][1]-Cs[i][1],Xy[i][2]-Cs[i][2],
+                color="g",length=length,normalize=True)
     for i in range(len(Cs)):
         ax.quiver(Cs[i][0],Cs[i][1],Cs[i][2],
-                  Xz[i][0],Xz[i][1],Xz[i][2],
-                  color="b",length=length,normalize=True)
-        if i==0:
-            print(Xz[i])
+                Xz[i][0]-Cs[i][0],Xz[i][1]-Cs[i][1],Xz[i][2]-Cs[i][2],
+                color="b",length=length,normalize=True)
     for i in range(len(Cs)):
         xx, yy = np.meshgrid(range(int(Cs[i][0]-length),int(Cs[i][0]+length)),
-                             range(int(Cs[i][1]-length),int(Cs[i][1]+length)))
+                            range(int(Cs[i][1]-length),int(Cs[i][1]+length)))
         z = -((xx-Cs[i][0])*Xz[i][0]+(yy-Cs[i][1])*Xz[i][1])/Xz[i][2]+Cs[i][2]
         ax.plot_surface(xx, yy, z, alpha=0.3)
         
-    # Create calibration pattern on the Z=0 plane
-    grid_size = 10  # Size of each square in the grid
-    num_squares_h = 5  # Number of squares along each axis
-    num_squares_v = 4
-    gap = 5  # Space between squares
+    center_x, center_y = 20, 60  # Adjust these values to the center of your plot
+    size = 50  # Adjust the size of the square as needed
 
-    for i in range(-num_squares_v // 2, num_squares_v // 2):
-        for j in range(-num_squares_h // 2, num_squares_h // 2):
-            x = [i * (grid_size + gap), (i + 1) * (grid_size + gap) - gap, (i + 1) * (grid_size + gap) - gap, i * (grid_size + gap)]
-            y = [j * (grid_size + gap), j * (grid_size + gap), (j + 1) * (grid_size + gap) - gap, (j + 1) * (grid_size + gap) - gap]
-            z = [0, 0, 0, 0]
-            ax.plot_trisurf(x, y, z, color='black', shade=False)
+    # Define the square's corner coordinates in the z=0 plane
+    x_square = [center_x - size / 2, center_x + size / 2, center_x + size / 2, center_x - size / 2]
+    y_square = [center_y - size / 2, center_y - size / 2, center_y + size / 2, center_y + size / 2]
+    z_square = [0, 0, 0, 0]  # Ensure the square lies in the z=0 plane
+
+    # Plot the black square on the z=0 plane
+    ax.plot_trisurf(x_square, y_square, z_square, color='black')
     
     ## show origin with limit setting
     ax.set_ylim([-1, 200])
-    ax.set_zlim([-300, 1])
+    ax.set_zlim([-300, 0])
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
+    
+    # elev = 20   # Elevation angle
+    elev = -20
+    azim = 85   # Azimuthal angle
+    ax.view_init(elev=elev, azim=azim)
+
     plt.savefig("3d_vectors_plot.jpg", format="jpg", dpi=300)
     
 camera_poses(Rs, ts)
