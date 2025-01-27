@@ -395,31 +395,7 @@ def threeD_plot(points_img1, points_img2, P, P_prime, H, H_prime):
     ax0.text(0.5, 0.95, "3D Plot Connecting Two 2D Images with Points", fontsize=20, ha='center')
 
     # Save the figure
-    plt.savefig("3dplot.jpg")
-    
-    # plt.figure(figsize=(15, 8))
-
-    # h1, w1, _ = image_left.shape
-    # h2, w2, _ = image_right.shape
-
-    # # Combine images
-    # combined_image = np.hstack((image_left, image_right))
-
-    # # Adjust the points from the second image
-    # pts2_shifted = points2D_right.copy()
-    # pts2_shifted[:, 0] += w1  # Shift x-coordinates by the width of the first image
-
-    # # Plot the combined image
-    # plt.figure(figsize=(10, 5))
-    # plt.imshow(combined_image)
-    # plt.axis("off")
-
-    # # Draw correspondences
-    # for (x1, y1), (x2, y2) in zip(points2D_left, pts2_shifted):
-    #     plt.plot([x1, x2], [y1, y2], 'r-', lw=1)  # Line connecting points
-    #     plt.scatter([x1, x2], [y1, y2], c='yellow', s=30)  # Points
-
-    # cv2.imwrite("rectified_img1_img2_task1.jpg", rectified_img2)
+    plt.savefig("3dplot_new.jpg")
     
 # Main driver script
 img1_path = "/home/aolivepe/Computer-Vision/HW9/HW9_images/img1.jpg"
@@ -436,8 +412,12 @@ np.save("points_img2.npy", points_img2)'''
 # points_img2= [(230, 747), (291, 422), (603, 411), (675, 727), (243, 810), (657, 803), (463, 459), (450, 590)]
 
 #Resized points
-points_img1= [(239, 225), (384, 228), (441, 405), (236, 399), (232, 431), (422, 443), (322, 250), (324, 321)]
-points_img2= [(137, 230), (283, 226), (316, 400), (107, 408), (113, 443), (309, 439), (217, 252), (210, 322)]
+# points_img1= [(239, 225), (384, 228), (441, 405), (236, 399), (232, 431), (422, 443), (322, 250), (324, 321)]
+# points_img2= [(137, 230), (283, 226), (316, 400), (107, 408), (113, 443), (309, 439), (217, 252), (210, 322)]
+
+points_img1 = np.load("/home/aolivepe/Computer-Vision/HW9/Pixel_Pts_rect_1.npy")
+points_img2 = np.load("/home/aolivepe/Computer-Vision/HW9/Pixel_Pts_rect_2.npy")
+
 
 F = estimateF(points_img1, points_img2)
 e, e_prime = findEs(F)

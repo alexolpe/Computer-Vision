@@ -53,8 +53,8 @@ def plot_image_and_depth(img0, depth0, img1, depth1, plot_name):
 if __name__ == "__main__":
     scene_info = pkl.load(open('./data/scene_info/1589_subset.pkl', 'rb'))
 
-    # for i_pair in range(len(scene_info)):
-    for i_pair in range(1):
+    for i_pair in range(len(scene_info)):
+    # for i_pair in range(1):
         # print(scene_info[i_pair].keys())
         # ['image0','image1','depth0', 'depth1', 'K0', 'K1', 'T0', 'T1', 'overlap_score']
         # print(scene_info[i_pair]['image0']) # path to image0
@@ -258,10 +258,13 @@ if __name__ == "__main__":
         ax = fig.add_subplot(111, projection='3d')
 
         # Scatter plot of the dense points
-        ax.scatter(
-            xyz_world[0, :], xyz_world[1, :], xyz_world[2, :],
+        sc = ax.scatter(
+            -xyz_world[0, :], xyz_world[1, :], xyz_world[2, :],
             c=depth_values0, cmap='jet', s=1  # Color by depth
         )
+        
+        cb = fig.colorbar(sc, ax=ax, shrink=0.6, aspect=10)
+        cb.set_label('Depth Values')
 
         # Set labels and title
         ax.set_xlabel('X (world)')
@@ -270,30 +273,13 @@ if __name__ == "__main__":
         ax.set_title('Dense 3D Scatter Plot of Scene')
         
         # Set orientation of the plot
+        # elev = 10 + 90
+        # azim = -(-180) 
+        # ax.view_init(elev=elev, azim=azim, vertical_axis="y")
+        
         elev = 90+10
-        azim = -(90+180) 
+        azim = -(90-180) 
         ax.view_init(elev=elev, azim=azim)
 
         plt.savefig(f'../pics/3D_points_pair_{i_pair}.jpg', bbox_inches='tight', pad_inches=0)
-        
-        # (5) Plot the 2D projection (X, Y) with Z as color
-        # fig2 = plt.figure(figsize=(10, 10))
-        # ax2 = fig2.add_subplot(111)
-
-        # # Scatter plot in 2D (X, Y) with color representing Z
-        # scatter = ax2.scatter(
-        #     xyz_world[0, :], xyz_world[1, :], 
-        #     c=xyz_world[2, :], cmap='jet', s=1  # Color by Z
-        # )
-
-        # # Add a color bar to represent Z values
-        # cbar = plt.colorbar(scatter, ax=ax2)
-        # cbar.set_label('Z (world)')
-
-        # # Set labels and title
-        # ax2.set_xlabel('X (world)')
-        # ax2.set_ylabel('Y (world)')
-        # ax2.set_title('2D Scatter Plot of Scene (Color by Z)')
-
-        # plt.savefig(f'../pics/2D_points_pair_{i_pair}.jpg', bbox_inches='tight', pad_inches=0)
 
